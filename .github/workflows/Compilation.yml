@@ -44,11 +44,19 @@ jobs:
           copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\playsound.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\playsound.py
           del C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\pydub\utils.py
           copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\pydub\utils.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\pydub\utils.py
-      - name: Install MinGW
-        uses: egor-tensin/setup-mingw@v2
-        with: 
-          platform: x64
       - name: Compile
         shell: cmd
         run: |
           setup.bat
+      - name: Archive Release
+        uses: TheDoctor0/zip-release@0.6.1
+        with: 
+          filename: dist.zip
+          path: D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\
+          directory: D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\dm_console.dist\
+          type: zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2.1.4
+        with:
+          name: BilibiliOnlineJukebox
+          path: D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\dist.zip
