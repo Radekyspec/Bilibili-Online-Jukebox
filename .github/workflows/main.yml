@@ -16,7 +16,7 @@ on:
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
-  build:
+  Build:
     # The type of runner that the job will run on
     runs-on: windows-latest
 
@@ -33,5 +33,7 @@ jobs:
           python-version: 3.9.7
           architecture: x64
       - name: Install dependencies
+        shell: cmd
         run: |
-          pip install -r .\requirements.txt
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
