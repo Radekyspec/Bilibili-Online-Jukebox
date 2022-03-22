@@ -40,4 +40,4 @@ jobs:
       - name: Replace dependencies
         shell: cmd
         run: |
-          tree C:\hostedtoolcache\windows\python\3.9.7\x64\lib\site-package\
+          python -m site
