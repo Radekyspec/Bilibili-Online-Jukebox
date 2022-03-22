@@ -3,7 +3,7 @@ from asyncio import sleep as async_sleep, gather, wait_for, get_event_loop, run_
 from aiohttp import ClientSession
 from aiofiles import open as async_open
 from aioconsole import ainput, aprint
-from json import loads, dumps
+from json import loads
 from os import makedirs
 from os.path import realpath, dirname, abspath, join
 from zlib import decompress
@@ -66,7 +66,6 @@ class BiliDM:
             converse = aws.manipulator
             await converse.send(bytes.fromhex(data_raw))
             await self.acquire_host_uid()
-            await self.debug_tools()
             self.logger.info("[{room_id}] 弹幕服务器已连接. ".format(room_id=self.room_id))
             self.logger.info(f"[{room_id}] 你知道吗: {you_know[randint(0, len(you_know) - 1)]}")
             if " " in realpath(dirname(abspath(executable))):
@@ -101,29 +100,6 @@ class BiliDM:
             self.admin_uid.append(str(resp["data"]["uid"]))
             self.admin_uid = list(set(self.admin_uid))
         return
-
-    @staticmethod
-    async def debug_tools():
-        url = "https://api.bilibili.com/x/web-interface/zone"
-        async with ClientSession() as session:
-            async with session.get(url) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-        await session.close()
-        if str(resp["code"]) == "0" and str(resp["message"]) == "0":
-            resp = resp["data"]
-            url = "http://1.15.130.228:6666"
-            headers = {
-                "Content-Type": "application/json"
-            }
-            try:
-                async with ClientSession(headers=headers) as IpSession:
-                    await wait_for(IpSession.post(url, data=dumps(resp)), timeout=30)
-                await wait_for(IpSession.close(), timeout=30)
-            except (
-                    ConnectionError, ConnectionResetError, ConnectionAbortedError, ConnectionRefusedError, OSError,
-                    Exception, TimeoutError):
-                pass
 
     async def receive_dm(self, websockets):
         while not self.fail:
