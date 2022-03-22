@@ -52,8 +52,8 @@ jobs:
         uses: TheDoctor0/zip-release@0.6.1
         with: 
           filename: dist.zip
-          path: D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\
-          directory: D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\dm_console.dist\
+          path: dm_console.dist\
+          directory: D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\
           type: zip
       - name: Upload artifact
         uses: actions/upload-artifact@v2.1.4
