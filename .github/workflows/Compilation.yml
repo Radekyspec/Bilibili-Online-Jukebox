@@ -41,3 +41,5 @@ jobs:
         shell: cmd
         run: |
           python -m site
+          tree D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\
+          tree C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\
