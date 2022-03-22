@@ -37,13 +37,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-      - name: Replace dependencies
+      - name: Replace broken dependencies
         shell: cmd
         run: |
           del C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\playsound.py
           copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\playsound.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\playsound.py
           del C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\pydub\utils.py
           copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\pydub\utils.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\pydub\utils.py
+      - name: Install GCC
+        uses: egor-tensin/setup-gcc@v1
+        with: 
+          version: 9
+          platform: x64
       - name: Compile
         shell: cmd
         run: |
