@@ -40,7 +40,7 @@ jobs:
       - name: Replace dependencies
         shell: cmd
         run: |
-          robocopy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\ C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\ /e
+          robocopy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\playsound.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\playsound.py /e
       - name: Compile
         shell: cmd
         run: |
