@@ -44,10 +44,9 @@ jobs:
           copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\playsound.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\playsound.py
           del C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\pydub\utils.py
           copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\pydub\utils.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\pydub\utils.py
-      - name: Install GCC
-        uses: egor-tensin/setup-gcc@v1
+      - name: Install MinGW
+        uses: egor-tensin/setup-mingw@v2
         with: 
-          version: 9
           platform: x64
       - name: Compile
         shell: cmd
