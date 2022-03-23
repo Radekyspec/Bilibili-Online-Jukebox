@@ -37,7 +37,7 @@ jobs:
       - name: Dir
         shell: cmd
         run: |
-          tree D:\a\Bilibili-Online-Jukebox\
+          dir D:\a\Bilibili-Online-Jukebox\
       - name: Prerelease
         uses: "marvinpinto/action-automatic-releases@latest"
         with:
