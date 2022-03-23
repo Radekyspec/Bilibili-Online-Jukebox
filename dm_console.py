@@ -1,6 +1,6 @@
 from multiprocessing import Process, freeze_support
 from asyncio import sleep as async_sleep, gather, wait_for, get_event_loop, run_coroutine_threadsafe, TimeoutError
-from aiohttp import ClientSession
+from aiohttp import ClientSession, request as async_request
 from aiofiles import open as async_open
 from aioconsole import ainput, aprint
 from json import loads
@@ -18,6 +18,8 @@ from random import randint, shuffle
 from aiowebsocket.converses import AioWebSocket
 from pydub import AudioSegment
 from typing import Optional
+
+__version__ = "0.4.11.8"
 
 
 class BiliDM:
@@ -65,14 +67,36 @@ class BiliDM:
         async with AioWebSocket(self.wss_url) as aws:
             converse = aws.manipulator
             await converse.send(bytes.fromhex(data_raw))
-            await self.acquire_host_uid()
+            try:
+                await wait_for(self.acquire_host_uid(), timeout=30)
+            except TimeoutError:
+                pass
             self.logger.info("[{room_id}] 弹幕服务器已连接. ".format(room_id=self.room_id))
             self.logger.info(f"[{room_id}] 你知道吗: {you_know[randint(0, len(you_know) - 1)]}")
             if " " in realpath(dirname(abspath(executable))):
                 self.logger.warning(f"[{self.room_id}] 检测到当前运行目录存在空格, 可能导致点歌功能异常, 请切换运行目录后重启本程序.")
+            try:
+                await wait_for(self.version_checker(), timeout=15)
+            except TimeoutError:
+                self.logger.error(f"[{self.room_id}] 检查更新超时.")
             tasks = [self.heart_beat(converse), self.receive_dm(converse)]
             await gather(*tasks)
         return
+
+    async def version_checker(self):
+        self.logger.info(f"[{self.room_id}] 正在检查更新...")
+        url = "https://api.github.com/repos/Radekyspec/Bilibili-Online-Jukebox/releases/latest"
+        async with async_request("GET", url) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
+        if resp:
+            ver = resp["tag_name"]
+            if __version__ != ver:
+                link = "https://github.com/Radekyspec/Bilibili-Online-Jukebox/releases/"
+                self.logger.info(f"[{self.room_id}] 当前有更新的点歌姬可供下载, 请前往 {link} 下载")
+                self.logger.info(f"[{self.room_id}] 当前版本: {__version__}, 最新版本: {ver}")
+            else:
+                self.logger.info(f"[{self.room_id}] 检查更新完成. 当前已运行最新版本.")
 
     async def heart_beat(self, websockets):
         hb = "00000010001000010000000200000001"
@@ -91,11 +115,10 @@ class BiliDM:
         payload = {
             "id": self.room_id,
         }
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-        await session.close()
+        # async with ClientSession() as session:
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         if str(resp["code"]) == "0":
             self.admin_uid.append(str(resp["data"]["uid"]))
             self.admin_uid = list(set(self.admin_uid))
@@ -542,11 +565,9 @@ class SearchSongs:
             "keywords": keyword,
             "realIP": "114.114.114.114",
         }
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-        await session.close()
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         try:
             song_id = resp["result"]["songs"][0]["id"]
         except KeyError:
@@ -564,11 +585,9 @@ class SearchSongs:
             "ids": self.song_id,
             "realIP": "114.114.114.114",
         }
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-            await session.close()
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         try:
             self.song_name = resp["songs"][0]["name"]
         except KeyError:
@@ -585,11 +604,9 @@ class SearchSongs:
             "id": self.song_id,
             "realIP": "114.114.114.114",
         }
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-            await session.close()
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         try:
             self.song_url = resp["data"][0]["url"]
         except KeyError:
@@ -662,11 +679,9 @@ class SongLogin:
             "password": self.password,
             "realIP": "114.114.114.114",
         }
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-        await session.close()
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         try:
             self.cookies = resp["cookie"]
         except KeyError:
@@ -684,11 +699,9 @@ class SongLogin:
             "password": self.password,
             "realIP": "114.114.114.114",
         }
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-        await session.close()
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         try:
             self.cookies = resp["cookie"]
         except KeyError:
@@ -725,11 +738,9 @@ class SongLogin:
             "cookie": self.cookies,
             "realIP": "114.114.114.114",
         } if self.cookies else None
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-        await session.close()
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         if resp["code"] != 200:
             self.cookies = None
         return
@@ -798,11 +809,9 @@ class Album:
             "cookie": self.cookies,
             "realIP": "114.114.114.114",
         }
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-        await session.close()
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         self.uid = resp["data"]["account"]["id"]
 
     async def acquire_user_playlist(self):
@@ -813,11 +822,9 @@ class Album:
             "limit": "9999",
             "realIP": "114.114.114.114",
         }
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-        await session.close()
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         # 返回可供选择的歌单列表
         self.album_dict["total"] = len(resp["playlist"])
         for i in range(len(resp["playlist"])):
@@ -837,11 +844,9 @@ class Album:
             "cookie": self.cookies,
             "realIP": "114.114.114.114",
         }
-        async with ClientSession() as session:
-            async with session.get(url, params=payload) as resp:
-                resp = await resp.text()
-                resp = loads(resp)
-        await session.close()
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
         album_id_list = []
         for i in range(len(resp["songs"])):
             album_id_list.append(resp["songs"][i]["id"])
