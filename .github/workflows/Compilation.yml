@@ -51,7 +51,7 @@ jobs:
       - name: Archive Release
         uses: TheDoctor0/zip-release@0.6.1
         with: 
-          filename: dist.zip
+          filename: BilibiliOnlineJukebox.zip
           path: dm_console.dist\*
           directory: D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\
           type: zip
@@ -60,3 +60,12 @@ jobs:
         with:
           name: BilibiliOnlineJukebox
           path: D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\dm_console.dist\*
+      - name: Prerelease
+        uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "current-binary-package"
+          prerelease: true
+          title: "Latest Development Build"
+          files: |
+            D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\BilibiliOnlineJukebox.zip
