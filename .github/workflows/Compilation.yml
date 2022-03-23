@@ -41,9 +41,9 @@ jobs:
         shell: cmd
         run: |
           del C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\playsound.py
-          copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\playsound.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\playsound.py
+          copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\playsound.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\
           del C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\pydub\utils.py
-          copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\pydub\utils.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\pydub\utils.py
+          copy D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\site-packages\pydub\utils.py C:\hostedtoolcache\windows\Python\3.9.7\x64\lib\site-packages\pydub\
       - name: Compile
         shell: cmd
         run: |
