@@ -68,4 +68,4 @@ jobs:
           prerelease: true
           title: "Latest Development Build"
           files: |
-            D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\BilibiliOnlineJukebox.zip
+            D:/a/Bilibili-Online-Jukebox/Bilibili-Online-Jukebox/out/BilibiliOnlineJukebox.zip
