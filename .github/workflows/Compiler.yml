@@ -16,7 +16,7 @@ on:
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
-  Build:
+  Compile:
     # The type of runner that the job will run on
     runs-on: windows-latest
 
@@ -75,8 +75,8 @@ jobs:
         uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "current-binary-package"
+          automatic_release_tag: "0.4.11.8"
           prerelease: false
-          title: "Latest Development Build"
+          title: "0.4.11.8"
           files: |
             D:/a/Bilibili-Online-Jukebox/Bilibili-Online-Jukebox/out/BilibiliOnlineJukebox.zip
