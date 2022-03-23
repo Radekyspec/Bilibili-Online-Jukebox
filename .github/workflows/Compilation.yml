@@ -48,6 +48,17 @@ jobs:
         shell: cmd
         run: |
           setup.bat
+      - name: Setup FFmpeg
+        uses: Iamshankhadeep/setup-ffmpeg@v1.1
+        with: 
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: "5.0"
+      - name: Move FFmpeg
+        shell: cmd
+        run: |
+          mkdir D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\dm_console.dist\bin
+          copy C:\hostedtoolcache\windows\ffmpeg\5.0\x64\ffmpeg.exe D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\dm_console.dist\bin\
+          copy C:\hostedtoolcache\windows\ffmpeg\5.0\x64\ffprobe.exe D:\a\Bilibili-Online-Jukebox\Bilibili-Online-Jukebox\out\dm_console.dist\bin\
       - name: Archive Release
         uses: TheDoctor0/zip-release@0.6.1
         with: 
@@ -65,7 +76,7 @@ jobs:
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           automatic_release_tag: "current-binary-package"
-          prerelease: true
+          prerelease: false
           title: "Latest Development Build"
           files: |
             D:/a/Bilibili-Online-Jukebox/Bilibili-Online-Jukebox/out/BilibiliOnlineJukebox.zip
