@@ -34,6 +34,10 @@ jobs:
           path: Bilibili-Online-Jukebox\
           directory: D:\a\Bilibili-Online-Jukebox\
           type: zip
+      - name: Dir
+        shell: cmd
+        run: |
+          tree D:\a\Bilibili-Online-Jukebox\
       - name: Prerelease
         uses: "marvinpinto/action-automatic-releases@latest"
         with:
