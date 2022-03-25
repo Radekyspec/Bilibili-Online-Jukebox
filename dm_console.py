@@ -19,7 +19,7 @@ from aiowebsocket.converses import AioWebSocket
 from pydub import AudioSegment
 from typing import Optional
 
-__version__ = "0.4.11.8"
+__version__ = "0.4.11.9"
 
 
 class BiliDM:
@@ -79,7 +79,7 @@ class BiliDM:
                 await wait_for(self.version_checker(), timeout=15)
             except TimeoutError:
                 self.logger.error(f"[{self.room_id}] 检查更新超时.")
-            tasks = [self.heart_beat(converse), self.receive_dm(converse)]
+            tasks = [self.heart_beat(converse), self.receive_dm(converse), self.song_trigger()]
             await gather(*tasks)
         return
 
@@ -124,13 +124,16 @@ class BiliDM:
             self.admin_uid = list(set(self.admin_uid))
         return
 
+    async def song_trigger(self):
+        await async_sleep(0.1)
+        try:
+            run_coroutine_threadsafe(self.play_song(), get_event_loop())
+        except Exception as e:
+            self.logger.exception(e)
+            self.playing.queue.clear()
+
     async def receive_dm(self, websockets):
         while not self.fail:
-            try:
-                run_coroutine_threadsafe(self.play_song(), get_event_loop())
-            except Exception as e:
-                self.logger.exception(e)
-                self.playing.get(block=False)
             receive_text = await websockets.receive()
             if receive_text:
                 await self.process_dm(receive_text)
@@ -297,62 +300,64 @@ class BiliDM:
                 self.logger.exception(e)
 
     async def play_song(self):
-        if self.playing.empty() and (
-                not self.wait_queue.empty() or not self.pro_queue.empty() or not self.album_queue.empty()) and (
-                not self.song.song_process.is_alive()):
-            album = False
-            try:
-                if not self.pro_queue.empty():
-                    raw = self.pro_queue.get(block=False)
-                    current_song = raw[0]
-                    is_first = raw[1]
-                    user = raw[2]
-                    if not is_first:
-                        self.song.init(priority=self.pro_queue.qsize() + 1, keyword=current_song, pro=True)
-                else:
-                    if not self.album_queue.empty():
-                        current_song = self.album_queue.get(block=False)
-                        user = "歌单播放系统"
-                        album = True
-                    else:
-                        raw = self.wait_queue.get(block=False)
+        while True:
+            await async_sleep(1)
+            if self.playing.empty() and (
+                    not self.wait_queue.empty() or not self.pro_queue.empty() or not self.album_queue.empty()) and (
+                    not self.song.song_process.is_alive()):
+                album = False
+                try:
+                    if not self.pro_queue.empty():
+                        raw = self.pro_queue.get(block=False)
                         current_song = raw[0]
                         is_first = raw[1]
                         user = raw[2]
                         if not is_first:
-                            self.song.init(priority=self.wait_queue.qsize() + self.pro_queue.qsize() + 1,
-                                           keyword=current_song)
-                self.playing.put(current_song)
-            except Empty:
-                return
-            if self.playing.empty():
-                return
-            try:
-                current_song = int(current_song)
-            except ValueError:
-                # 输入歌曲名点歌
-                self.logger.info(f"[{self.room_id}] 正在下载:「{current_song}」, 点歌用户:「{user}」...")
-                await self.song.run()
-                self.playing.queue.clear()
-            else:
-                # 通过歌曲id点歌
-                if album:
-                    # 调用歌单播放系统
-                    self.song.song_id = current_song
-                    try:
-                        await wait_for(fut=self.song.acquire_song_name(), timeout=30)
-                    except TimeoutError:
-                        self.logger.error(f"[{self.room_id}] 获取歌曲名超时! 正在切换至下一曲...")
+                            self.song.init(priority=self.pro_queue.qsize() + 1, keyword=current_song, pro=True)
                     else:
-                        self.logger.info(f"[{self.room_id}] 正在下载:「{self.song.song_name}」, 点歌用户:「{user}」...")
-                        await self.song.run_album(song_id=current_song)
-                    finally:
-                        self.playing.queue.clear()
-                else:
-                    # 调用歌曲id点歌
+                        if not self.album_queue.empty():
+                            current_song = self.album_queue.get(block=False)
+                            user = "歌单播放系统"
+                            album = True
+                        else:
+                            raw = self.wait_queue.get(block=False)
+                            current_song = raw[0]
+                            is_first = raw[1]
+                            user = raw[2]
+                            if not is_first:
+                                self.song.init(priority=self.wait_queue.qsize() + self.pro_queue.qsize() + 1,
+                                               keyword=current_song)
+                    self.playing.put(current_song)
+                except Empty:
+                    return
+                if self.playing.empty():
+                    return
+                try:
+                    current_song = int(current_song)
+                except ValueError:
+                    # 输入歌曲名点歌
                     self.logger.info(f"[{self.room_id}] 正在下载:「{current_song}」, 点歌用户:「{user}」...")
-                    await self.song.run_by_id()
+                    await self.song.run()
                     self.playing.queue.clear()
+                else:
+                    # 通过歌曲id点歌
+                    if album:
+                        # 调用歌单播放系统
+                        self.song.song_id = current_song
+                        try:
+                            await wait_for(fut=self.song.acquire_song_name(), timeout=30)
+                        except TimeoutError:
+                            self.logger.error(f"[{self.room_id}] 获取歌曲名超时! 正在切换至下一曲...")
+                        else:
+                            self.logger.info(f"[{self.room_id}] 正在下载:「{self.song.song_name}」, 点歌用户:「{user}」...")
+                            await self.song.run_album(song_id=current_song)
+                        finally:
+                            self.playing.queue.clear()
+                    else:
+                        # 调用歌曲id点歌
+                        self.logger.info(f"[{self.room_id}] 正在下载:「{current_song}」, 点歌用户:「{user}」...")
+                        await self.song.run_by_id()
+                        self.playing.queue.clear()
 
     @classmethod
     async def start(cls, room_list: Optional[list] = None):
@@ -429,10 +434,19 @@ class SearchSongs:
                 self.pro_keyword.get()
             else:
                 self.keyword.get()
+            return
         if self.song_id is not None:
             try:
                 self.logger.debug("Acquiring song name...")
                 await wait_for(fut=self.acquire_song_name(), timeout=30)
+            except TimeoutError:
+                self.logger.error(f"下载「{keyword}」超时! 正在切换至下一曲...")
+                if pro:
+                    self.pro_keyword.get()
+                else:
+                    self.keyword.get()
+                return
+            try:
                 self.logger.debug("Acquiring download url...")
                 await wait_for(fut=self.acquire_song_url(), timeout=30)
             except TimeoutError:
@@ -441,6 +455,7 @@ class SearchSongs:
                     self.pro_keyword.get()
                 else:
                     self.keyword.get()
+                return
             if self.song_name and self.song_url:
                 self.acquire_format()
                 self.logger.debug("Start downloading...")
@@ -452,6 +467,7 @@ class SearchSongs:
                         self.pro_keyword.get()
                     else:
                         self.keyword.get()
+                    return
                 else:
                     self.play_sync_func()
                     if pro:
@@ -495,6 +511,14 @@ class SearchSongs:
             try:
                 self.logger.debug("Acquiring song name...")
                 await wait_for(fut=self.acquire_song_name(), timeout=30)
+            except TimeoutError:
+                self.logger.error(f"下载「{keyword}」超时! 正在切换至下一曲...")
+                if pro:
+                    self.pro_keyword.get()
+                else:
+                    self.keyword.get()
+                return
+            try:
                 self.logger.debug("Acquiring download url...")
                 await wait_for(fut=self.acquire_song_url(), timeout=30)
             except TimeoutError:
@@ -503,6 +527,7 @@ class SearchSongs:
                     self.pro_keyword.get()
                 else:
                     self.keyword.get()
+                return
             if self.song_name and self.song_url:
                 self.acquire_format()
                 self.logger.debug("Start downloading...")
@@ -514,6 +539,7 @@ class SearchSongs:
                         self.pro_keyword.get()
                     else:
                         self.keyword.get()
+                    return
                 else:
                     self.play_sync_func()
                     if pro:
@@ -538,10 +564,15 @@ class SearchSongs:
             try:
                 self.logger.debug("Acquiring song name...")
                 await wait_for(fut=self.acquire_song_name(), timeout=30)
+            except TimeoutError:
+                self.logger.error(f"下载「{self.song_id}」超时! 正在切换至下一曲...")
+                return
+            try:
                 self.logger.debug("Acquiring download url...")
                 await wait_for(fut=self.acquire_song_url(), timeout=30)
             except TimeoutError:
                 self.logger.error(f"下载「{self.song_id}」超时! 正在切换至下一曲...")
+                return
             if self.song_name and self.song_url:
                 self.acquire_format()
                 self.logger.debug("Start downloading...")
@@ -549,6 +580,7 @@ class SearchSongs:
                     await wait_for(fut=self.download_song(), timeout=30)
                 except TimeoutError:
                     self.logger.error(f"下载「{self.song_name}」超时! 正在切换至下一曲...")
+                    return
                 else:
                     self.play_sync_func()
                     self.logger.info(f"正在播放:「{self.song_name}」...")
