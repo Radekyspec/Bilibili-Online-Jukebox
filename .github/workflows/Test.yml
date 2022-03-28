@@ -14,6 +14,7 @@ on:
 jobs:
   # This workflow contains a single job called "build"
   Test:
+    if: github.ref != 'refs/heads/master'
     # The type of runner that the job will run on
     runs-on: windows-latest
 
