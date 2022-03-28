@@ -4,8 +4,8 @@ from aiohttp import ClientSession, request as async_request
 from aiofiles import open as async_open
 from aioconsole import ainput, aprint
 from json import loads
-from os import makedirs
-from os.path import realpath, dirname, abspath, join
+from os import makedirs, remove
+from os.path import realpath, dirname, abspath, join, exists
 from zlib import decompress
 from queue import Queue, Empty, PriorityQueue
 from playsound import playsound
@@ -18,8 +18,11 @@ from random import randint, shuffle
 from aiowebsocket.converses import AioWebSocket
 from pydub import AudioSegment
 from typing import Optional
+from configparser import ConfigParser, DEFAULTSECT
 
-__version__ = "0.4.11.9"
+__version__ = "0.4.12.0"
+__name__ = "__main__"
+EXEC_PATH = realpath(dirname(abspath(executable)))
 
 
 class BiliDM:
@@ -73,7 +76,7 @@ class BiliDM:
                 pass
             self.logger.info("[{room_id}] 弹幕服务器已连接. ".format(room_id=self.room_id))
             self.logger.info(f"[{room_id}] 你知道吗: {you_know[randint(0, len(you_know) - 1)]}")
-            if " " in realpath(dirname(abspath(executable))):
+            if " " in EXEC_PATH:
                 self.logger.warning(f"[{self.room_id}] 检测到当前运行目录存在空格, 可能导致点歌功能异常, 请切换运行目录后重启本程序.")
             try:
                 await wait_for(self.version_checker(), timeout=15)
@@ -411,7 +414,7 @@ class SearchSongs:
     async def run(self):
         self.reset()
         login = SongLogin()
-        await login.load_cookies()
+        login.load_cookies()
         self.cookies = login.cookies
         if not self.pro_keyword.empty():
             raw_keyword = self.pro_keyword.get(block=False)
@@ -481,7 +484,7 @@ class SearchSongs:
     async def run_by_id(self):
         self.reset()
         login = SongLogin()
-        await login.load_cookies()
+        login.load_cookies()
         self.cookies = login.cookies
         if not self.pro_keyword.empty():
             raw_keyword = self.pro_keyword.get(block=False)
@@ -553,7 +556,7 @@ class SearchSongs:
     async def run_album(self, song_id):
         self.reset()
         login = SongLogin()
-        await login.load_cookies()
+        login.load_cookies()
         self.cookies = login.cookies
         self.logger.debug("Acquiring song id...")
         try:
@@ -657,9 +660,9 @@ class SearchSongs:
         if self.song_extend != "mp3":
             self.logger.debug("Need .mp3, having .{format} instead. Trying to convert...".format(
                 format=self.song_extend))
-            AudioSegment.from_file(join(realpath(dirname(abspath(executable))),
+            AudioSegment.from_file(join(EXEC_PATH,
                                         "temp.{extend}".format(extend=self.song_extend))).export(
-                join(realpath(dirname(abspath(executable))),
+                join(EXEC_PATH,
                      "temp.mp3"), format="mp3")
             self.song_extend = "mp3"
             self.logger.debug("Convert complete! ")
@@ -669,7 +672,7 @@ class SearchSongs:
             async with ClientSession() as session:
                 async with session.get(self.song_url) as resp:
                     async with async_open(
-                            join(realpath(dirname(abspath(executable))),
+                            join(EXEC_PATH,
                                  "temp.{extend}".format(extend=self.song_extend)),
                             "wb") as r:
                         async for chunk in resp.content.iter_chunked(1024):
@@ -683,7 +686,7 @@ class SearchSongs:
         self.logger.debug("Ready to play!")
         self.song_process = Process(target=playsound,
                                     args=("file:///{path}".format(
-                                        path=join(realpath(dirname(abspath(executable))),
+                                        path=join(EXEC_PATH,
                                                   "temp.{extend}".format(extend=self.song_extend))),),
                                     daemon=True)
 
@@ -698,6 +701,7 @@ class SongLogin:
         self.email = None
         self.password = None
         self.cookies = None
+        self.config_parser = BaseConfig()
 
     def init(self, phone: Optional[str] = None, email: Optional[str] = None, password: Optional[str] = None):
         self.phone = phone
@@ -744,24 +748,15 @@ class SongLogin:
                 f"[LOGIN] 登录成功. 使用令牌: {self.cookies[:20]}******************************************************.")
             return
 
-    async def save_cookies(self):
+    def save_cookies(self):
         if self.cookies:
-            async with async_open(
-                    join(realpath(dirname(abspath(executable))), "cookies"),
-                    "w") as c:
-                await c.write(self.cookies)
-                await c.close()
+            self.config_parser.save("Netease", "cookies", self.cookies)
         return
 
-    async def load_cookies(self):
-        try:
-            async with async_open(
-                    join(realpath(dirname(abspath(executable))), "cookies"),
-                    "r") as t:
-                self.cookies = await t.read()
-                await t.close()
-        except FileNotFoundError:
-            self.cookies = None
+    def load_cookies(self):
+        if self.config_parser.has_section("Netease") and self.config_parser.has_option(
+                "Netease", "cookies") and self.config_parser.parser["Netease"]["cookies"]:
+            self.cookies = self.config_parser.parser["Netease"]["cookies"]
         return
 
     async def refresh_login(self):
@@ -779,7 +774,7 @@ class SongLogin:
 
     async def auto(self):
         self.logger.info("正在恢复登录...")
-        await self.load_cookies()
+        self.load_cookies()
         await self.refresh_login()
         if not self.cookies:
             self.logger.warning("[LOGIN] 登录令牌无效或为空. ")
@@ -788,12 +783,12 @@ class SongLogin:
                 self.phone = str(getpass("[LOGIN] 请输入手机号, 输入完毕后回车 (手机号不会显示): "))
                 self.password = str(getpass("[LOGIN] 请输入密码, 输入完毕后回车 (密码不会显示): "))
                 await self.phone_login()
-                await self.save_cookies()
+                self.save_cookies()
             elif mode and mode == "2":
                 self.email = str(getpass("[LOGIN] 请输入邮箱, 输入完毕后回车 (邮箱不会显示): "))
                 self.password = str(getpass("[LOGIN] 请输入密码, 输入完毕后回车 (密码不会显示): "))
                 await self.email_login()
-                await self.save_cookies()
+                self.save_cookies()
 
 
 class Album:
@@ -827,7 +822,7 @@ class Album:
     # 一定需要先调用此方法鉴权
     async def acquire_login_status(self):
         login = SongLogin()
-        await login.load_cookies()
+        login.load_cookies()
         await login.refresh_login()
         self.cookies = login.cookies
         if not self.cookies:
@@ -908,7 +903,7 @@ class SongLogger:
             self.level = CRITICAL
 
         try:
-            makedirs(join(realpath(dirname(abspath(executable))), "logs"))
+            makedirs(join(EXEC_PATH, "logs"))
         except (FileExistsError, OSError):
             pass
 
@@ -917,7 +912,7 @@ class SongLogger:
         stream_handler = StreamHandler()
         stream_handler.setLevel(self.level)
         file_handler = FileHandler(
-            filename=join(realpath(dirname(abspath(executable))), "logs",
+            filename=join(EXEC_PATH, "logs",
                           "{log_time}.log".format(log_time=strftime("%Y-%m-%d", localtime()))),
             mode="a",
             encoding="utf-8",
@@ -935,18 +930,92 @@ class SongLogger:
         return self.logger
 
 
-__name__ = "__main__"
+class BaseConfig:
+    def __init__(self):
+        self.parser = ConfigParser()
+        try:
+            makedirs(join(EXEC_PATH, "config"))
+        except FileExistsError:
+            pass
+        if not exists(join(EXEC_PATH, "config", "config.ini")) or not (self.verify_room_id() or self.verify_cookies()):
+            self.init_config()
+        self.load_parser()
+
+    def load_parser(self):
+        self.parser.clear()
+        self.parser.read(join(EXEC_PATH, "config", "config.ini"), encoding="utf-8")
+        return self.parser
+
+    def init_config(self):
+        self.parser.clear()
+        try:
+            remove(join(EXEC_PATH, "config", "config.ini"))
+        except FileNotFoundError:
+            pass
+        self.parser.read_dict({
+            "Users": {
+                "room_id": "",
+            },
+            "Netease": {
+                "cookies": "",
+            },
+        })
+        self.parser.write(open(join(EXEC_PATH, "config", "config.ini"), "w"))
+        return
+
+    def verify_room_id(self):
+        self.parser.clear()
+        self.parser.read(join(EXEC_PATH, "config", "config.ini"), encoding="utf-8")
+        results = [
+            True if (self.parser.has_section("Users") and self.parser.has_section("Users") != DEFAULTSECT) else False,
+            True if (self.parser.has_option(
+                "Users", "room_id") and self.parser.has_option("Users", "room_id") != DEFAULTSECT) else False,
+        ]
+        return all(results)
+
+    def verify_cookies(self):
+        self.parser.clear()
+        self.parser.read(join(EXEC_PATH, "config", "config.ini"), encoding="utf-8")
+        results = [
+            True if (self.parser.has_section("Netease") and self.parser.has_section(
+                "Netease") != DEFAULTSECT) else False,
+            True if (self.parser.has_option(
+                "Netease", "cookies") and self.parser.has_option("Netease", "cookies") != DEFAULTSECT) else False,
+        ]
+        return all(results)
+
+    def has_section(self, section):
+        if self.parser.has_section(section):
+            return True
+        else:
+            return False
+
+    def has_option(self, section, option):
+        try:
+            if self.parser.has_option(section, option):
+                return True
+            else:
+                return False
+        except AttributeError:
+            return False
+
+    def save(self, section, option, content=""):
+        self.parser.clear()
+        self.parser.read(join(EXEC_PATH, "config", "config.ini"), encoding="utf-8")
+        if not self.parser.has_section(section):
+            self.parser[section] = {}
+        self.parser[section][option] = content
+        self.parser.write(open(join(EXEC_PATH, "config", "config.ini"), "w"))
+        return
+
+
 while __name__ == "__main__":
     freeze_support()
-    room_id = input(
-        "{log_time},{ns} - [INFO][INIT] 请输入直播间号 (纯数字), 输入完毕后回车: ".format(
-            log_time=strftime("%Y-%m-%d %H:%M:%S", localtime()), ns=time_ns() % 1000))
     logger = SongLogger(level="INFO", logger_name="errors").get_logger()
     error_stream_handler = StreamHandler()
     error_stream_handler.setLevel(CRITICAL)
     error_file_handler = FileHandler(
-        filename=join(realpath(dirname(abspath(executable))), "logs",
-                      "{log_time}.log".format(log_time=strftime("%Y-%m-%d", localtime()))),
+        filename=join(EXEC_PATH, "logs", "{log_time}.log".format(log_time=strftime("%Y-%m-%d", localtime()))),
         mode="a",
         encoding="utf-8",
     )
@@ -957,12 +1026,20 @@ while __name__ == "__main__":
     logger.handlers.clear()
     logger.addHandler(error_stream_handler)
     logger.addHandler(error_file_handler)
+    room_id = BaseConfig().parser["Users"]["room_id"]
+    if not room_id:
+        room_id = input(
+            "{log_time},{ns} - [INFO][INIT] 请输入直播间号 (纯数字), 输入完毕后回车: ".format(
+                log_time=strftime("%Y-%m-%d %H:%M:%S", localtime()), ns=time_ns() % 1000))
     try:
         room_id = int(room_id)
     except ValueError:
+        BaseConfig().save("Users", "room_id", "")
         logger.critical("[INIT] 直播间号只能为数字! ")
         sleep(0.1)
+        continue
     else:
+        BaseConfig().save("Users", "room_id", str(room_id))
         __name__ = "__started__"
 
 
@@ -976,4 +1053,4 @@ while __name__ == "__main__":
                 auto_start(room_id, error_logger)
 
 
-        auto_start(room_id, logger)
+        auto_start(str(room_id), logger)
