@@ -4,7 +4,7 @@ from aiohttp import ClientSession, request as async_request
 from aiofiles import open as async_open
 from aioconsole import ainput, aprint
 from json import loads
-from os import makedirs, remove
+from os import makedirs, remove, execlp
 from os.path import realpath, dirname, abspath, join, exists
 from zlib import decompress
 from queue import Queue, Empty, PriorityQueue
@@ -20,9 +20,9 @@ from pydub import AudioSegment
 from typing import Optional
 from configparser import ConfigParser, DEFAULTSECT
 
-__version__ = "0.4.12.0"
-__name__ = "__main__"
+__version__ = "0.4.12.1"
 EXEC_PATH = realpath(dirname(abspath(executable)))
+EXEC = join(EXEC_PATH, executable)
 
 
 class BiliDM:
@@ -131,8 +131,8 @@ class BiliDM:
         await async_sleep(0.1)
         try:
             run_coroutine_threadsafe(self.play_song(), get_event_loop())
-        except Exception as e:
-            self.logger.exception(e)
+        except Exception as se:
+            self.logger.exception(se)
             self.playing.queue.clear()
 
     async def receive_dm(self, websockets):
@@ -299,8 +299,8 @@ class BiliDM:
                         if not self.wait_queue.empty():
                             self.wait_queue.queue.clear()
                         self.logger.info(f"[{self.room_id}] 管理「{user}」清空了点歌播放列表.")
-            except Exception as e:
-                self.logger.exception(e)
+            except Exception as de:
+                self.logger.exception(de)
 
     async def play_song(self):
         while True:
@@ -1009,6 +1009,7 @@ class BaseConfig:
         return
 
 
+__name__ = "__main__"
 while __name__ == "__main__":
     freeze_support()
     logger = SongLogger(level="INFO", logger_name="errors").get_logger()
@@ -1041,16 +1042,10 @@ while __name__ == "__main__":
     else:
         BaseConfig().save("Users", "room_id", str(room_id))
         __name__ = "__started__"
-
-
-        def auto_start(live_room_id, error_logger):
-            try:
-                get_event_loop().run_until_complete(BiliDM.start([live_room_id]))
-            except Exception as e:
-                logger.exception(e)
-                logger.critical(f"[{room_id}] 程序发生错误, 即将自动重启...")
-                logger.critical(f"[{room_id}] 错误已经被记录, 请将logs目录下的日志文件发送给作者.")
-                auto_start(room_id, error_logger)
-
-
-        auto_start(str(room_id), logger)
+        try:
+            get_event_loop().run_until_complete(BiliDM.start([room_id]))
+        except Exception as e:
+            logger.exception(e)
+            logger.critical(f"[{room_id}] 程序发生错误, 即将自动重启...")
+            logger.critical(f"[{room_id}] 错误已经被记录, 请将logs目录下的日志文件发送给作者.")
+            execlp(EXEC, EXEC)
