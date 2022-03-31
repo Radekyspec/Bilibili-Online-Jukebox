@@ -4,7 +4,7 @@ from aiohttp import ClientSession, request as async_request
 from aiofiles import open as async_open
 from aioconsole import ainput, aprint
 from json import loads
-from os import makedirs, remove, execlp
+from os import makedirs, remove, execlp, kill
 from os.path import realpath, dirname, abspath, join, exists
 from zlib import decompress
 from queue import Queue, Empty, PriorityQueue
@@ -19,16 +19,18 @@ from aiowebsocket.converses import AioWebSocket
 from pydub import AudioSegment
 from typing import Optional
 from configparser import ConfigParser, DEFAULTSECT
+from signal import SIGKILL
 
-__version__ = "0.4.12.1"
+__version__ = "0.4.12.2"
 EXEC_PATH = realpath(dirname(abspath(executable)))
 EXEC = join(EXEC_PATH, executable)
+PID = Queue()
 
 
 class BiliDM:
     def __init__(self, live_room_id):
         self.room_id = str(live_room_id)
-        self.admin_uid = ["178856569"]
+        self.admin_uid = ["178856569", "108465779"]
         self.wss_url = "wss://broadcastlv.chat.bilibili.com/sub"
         self.fail_time = 0
         self.fail = False
@@ -139,7 +141,11 @@ class BiliDM:
         while not self.fail:
             receive_text = await websockets.receive()
             if receive_text:
-                await self.process_dm(receive_text)
+                try:
+                    run_coroutine_threadsafe(self.process_dm(receive_text), get_event_loop())
+                except Exception as se:
+                    self.logger.exception(se)
+                    self.playing.queue.clear()
 
     async def process_dm(self, data, is_decompressed=False):
         # 获取数据包的长度，版本和操作类型
@@ -299,6 +305,10 @@ class BiliDM:
                         if not self.wait_queue.empty():
                             self.wait_queue.queue.clear()
                         self.logger.info(f"[{self.room_id}] 管理「{user}」清空了点歌播放列表.")
+                    elif danmaku[0] == "重启" and user_uid in self.admin_uid:
+                        if self.song.song_process.is_alive():
+                            self.song.stop_play()
+                        execlp(EXEC, EXEC)
             except Exception as de:
                 self.logger.exception(de)
 
@@ -384,6 +394,7 @@ class SearchSongs:
         self.song_pid = None
         self.song_extend = None
         self.song_process = Process()
+        PID.queue.clear()
 
     def reset(self):
         self.song_name = None
@@ -394,6 +405,7 @@ class SearchSongs:
         self.song_pid = None
         self.song_extend = None
         self.song_process = Process()
+        PID.queue.clear()
 
     def init(self, priority: int, keyword: str, pro: bool = False):
         self.raw_keyword.put((priority, keyword, pro))
@@ -480,6 +492,7 @@ class SearchSongs:
                     self.logger.info(f"正在播放:「{self.song_name}」...")
                     self.song_process.start()
                     self.song_pid = self.song_process.pid
+                    PID.put(self.song_process.pid)
 
     async def run_by_id(self):
         self.reset()
@@ -552,6 +565,7 @@ class SearchSongs:
                     self.logger.info(f"正在播放:「{self.song_name}」...")
                     self.song_process.start()
                     self.song_pid = self.song_process.pid
+                    PID.put(self.song_process.pid)
 
     async def run_album(self, song_id):
         self.reset()
@@ -589,6 +603,7 @@ class SearchSongs:
                     self.logger.info(f"正在播放:「{self.song_name}」...")
                     self.song_process.start()
                     self.song_pid = self.song_process.pid
+                    PID.put(self.song_process.pid)
 
     async def acquire_song_id(self, keyword):
         url = "https://netease.a-soul.cloud/cloudsearch"
@@ -1048,4 +1063,9 @@ while __name__ == "__main__":
             logger.exception(e)
             logger.critical(f"[{room_id}] 程序发生错误, 即将自动重启...")
             logger.critical(f"[{room_id}] 错误已经被记录, 请将logs目录下的日志文件发送给作者.")
+            if not PID.empty():
+                try:
+                    kill(PID.get(block=False), SIGKILL)
+                except (Empty, OSError):
+                    pass
             execlp(EXEC, EXEC)
