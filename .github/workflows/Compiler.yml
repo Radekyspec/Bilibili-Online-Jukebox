@@ -68,8 +68,8 @@ jobs:
         uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "0.4.12.1"
+          automatic_release_tag: "0.4.12.2"
           prerelease: false
-          title: "0.4.12.1"
+          title: "0.4.12.2"
           files: |
             D:/a/Bilibili-Online-Jukebox/Bilibili-Online-Jukebox/out/BilibiliOnlineJukebox.zip
