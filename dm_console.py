@@ -19,7 +19,7 @@ from aiowebsocket.converses import AioWebSocket
 from pydub import AudioSegment
 from typing import Optional
 from configparser import ConfigParser, DEFAULTSECT
-from signal import SIGKILL
+from signal import SIGTERM
 
 __version__ = "0.4.12.2"
 EXEC_PATH = realpath(dirname(abspath(executable)))
@@ -1065,7 +1065,7 @@ while __name__ == "__main__":
             logger.critical(f"[{room_id}] 错误已经被记录, 请将logs目录下的日志文件发送给作者.")
             if not PID.empty():
                 try:
-                    kill(PID.get(block=False), SIGKILL)
+                    kill(PID.get(block=False), SIGTERM)
                 except (Empty, OSError):
                     pass
             execlp(EXEC, EXEC)
