@@ -1,8 +1,9 @@
 from multiprocessing import Process, freeze_support
-from asyncio import sleep as async_sleep, gather, wait_for, get_event_loop, run_coroutine_threadsafe, TimeoutError
+from asyncio import sleep as async_sleep, gather, get_event_loop, run_coroutine_threadsafe, TimeoutError
 from aiohttp import ClientSession, request as async_request
 from aiofiles import open as async_open
 from aioconsole import ainput, aprint
+from async_timeout import timeout
 from json import loads
 from os import makedirs, remove, execlp, kill
 from os.path import realpath, dirname, abspath, join, exists
@@ -21,7 +22,7 @@ from typing import Optional
 from configparser import ConfigParser, DEFAULTSECT
 from signal import SIGTERM
 
-__version__ = "0.4.12.2"
+__version__ = "0.4.12.3"
 EXEC_PATH = realpath(dirname(abspath(executable)))
 EXEC = join(EXEC_PATH, executable)
 PID = Queue()
@@ -31,6 +32,7 @@ class BiliDM:
     def __init__(self, live_room_id):
         self.room_id = str(live_room_id)
         self.admin_uid = ["178856569", "108465779"]
+        self.ban_uid = []
         self.wss_url = "wss://broadcastlv.chat.bilibili.com/sub"
         self.fail_time = 0
         self.fail = False
@@ -45,17 +47,19 @@ class BiliDM:
 
     async def startup(self):
         await SongLogin().auto()
-        data_raw = "000000{headerLen}0010000100000007000000017b22726f6f6d6964223a{room_id}7d"
-        data_raw = data_raw.format(headerLen=hex(27 + len(self.room_id))[2:],
-                                   room_id="".join(map(lambda x: hex(ord(x))[2:], list(self.room_id))))
+        data_raw = "000000{headerLen}0010000100000007000000017b22726f6f6d6964223a{room_id}7d".format(
+            headerLen=hex(27 + len(self.room_id))[2:],
+            room_id="".join(map(lambda x: hex(ord(x))[2:], list(self.room_id))))
         you_know = [
             "歌曲下载默认超时是30秒! 再也不用担心下载不下来啦! ",
             "弹幕发送 \"点歌(空格)歌名(空格)曲作者\" 就可以开启点歌之旅啦! 曲作者参数是可以不加的哟! ",
             "弹幕发送 \"暂停\" 可以暂停当前歌曲的播放哦! ",
             "弹幕发送 \"播放\" 可以取消暂停当前的歌曲哦! ",
             "弹幕发送 \"切歌\" 可以立即跳过当前歌曲哦! ",
-            "主播本人在弹幕发送 \"歌单\" 可以直接播放登录的网易云账号内收藏的歌单哦! ",
-            "主播本人在弹幕发送 \"清空歌单\" 可以快捷退出歌单播放模式哦! ",
+            "主播在弹幕发送 \"ban [uid]\" 就可以屏蔽指定用户的所有命令哦! ",
+            "主播在弹幕发送 \"unban [uid]\" 就可以解除屏蔽指定用户哦! ",
+            "主播在弹幕发送 \"歌单\" 可以直接播放登录的网易云账号内收藏的歌单哦! ",
+            "主播在弹幕发送 \"清空歌单\" 可以快捷退出歌单播放模式哦! ",
             "主播或直播间房管在弹幕发送 \"取消点歌\" 可以直接移除点歌列表内所有的歌曲哦! ",
             "弹幕发送 \"撤回点歌\" 可以取消最近一次的点歌哦! 再也不用担心点错歌了! ",
             "点歌姬是付费软件哦! 只需要给作者转账150啥币就可以永久使用了! ",
@@ -73,7 +77,8 @@ class BiliDM:
             converse = aws.manipulator
             await converse.send(bytes.fromhex(data_raw))
             try:
-                await wait_for(self.acquire_host_uid(), timeout=30)
+                async with timeout(30):
+                    await self.acquire_host_uid()
             except TimeoutError:
                 pass
             self.logger.info("[{room_id}] 弹幕服务器已连接. ".format(room_id=self.room_id))
@@ -81,7 +86,8 @@ class BiliDM:
             if " " in EXEC_PATH:
                 self.logger.warning(f"[{self.room_id}] 检测到当前运行目录存在空格, 可能导致点歌功能异常, 请切换运行目录后重启本程序.")
             try:
-                await wait_for(self.version_checker(), timeout=15)
+                async with timeout(15):
+                    await self.version_checker()
             except TimeoutError:
                 self.logger.error(f"[{self.room_id}] 检查更新超时.")
             tasks = [self.heart_beat(converse), self.receive_dm(converse), self.song_trigger()]
@@ -139,13 +145,19 @@ class BiliDM:
 
     async def receive_dm(self, websockets):
         while not self.fail:
-            receive_text = await websockets.receive()
-            if receive_text:
-                try:
-                    run_coroutine_threadsafe(self.process_dm(receive_text), get_event_loop())
-                except Exception as se:
-                    self.logger.exception(se)
-                    self.playing.queue.clear()
+            try:
+                receive_text = await websockets.receive()
+            except (OSError, ConnectionError, ConnectionResetError, ConnectionRefusedError, ConnectionAbortedError):
+                self.logger.info(f"[{self.room_id}] 与弹幕服务器的连接被断开.")
+                await async_sleep(3)
+                await self.startup()
+            else:
+                if receive_text:
+                    try:
+                        run_coroutine_threadsafe(self.process_dm(receive_text), get_event_loop())
+                    except Exception as se:
+                        self.logger.exception(se)
+                        self.playing.queue.clear()
 
     async def process_dm(self, data, is_decompressed=False):
         # 获取数据包的长度，版本和操作类型
@@ -161,7 +173,7 @@ class BiliDM:
         # 有时会发送过来 zlib 压缩的数据包，这个时候要去解压。
         if ver == 2 and not is_decompressed:
             data = decompress(data[16:])
-            await self.process_dm(data, is_decompressed=True)
+            run_coroutine_threadsafe(self.process_dm(data, is_decompressed=True), get_event_loop())
             return
 
         # ver 为1的时候为进入房间后或心跳包服务器的回应。op 为3的时候为房间的人气值。
@@ -180,135 +192,155 @@ class BiliDM:
                     user_uid = str(jd["info"][2][0])
                     admin_status = str(jd["info"][2][2])
                     danmaku = str(jd["info"][1]).strip().split()
-                    user = str(jd["info"][2][1])
-                    if danmaku[0] == "点歌" and danmaku[1:]:
-                        song_name = ""
-                        for d in danmaku[1:]:
-                            song_name += " " + d
-                        song_name = song_name.strip()
-                        if self.playing.empty() and (
-                                self.wait_queue.empty() and self.pro_queue.empty() and self.album_queue.empty()) and (
-                                not self.song.song_process.is_alive()):
-                            if user_uid in self.admin_uid or (admin_status == "1" and randint(1, randint(1, 100)) == 2):
-                                self.pro_queue.put((song_name, True, user))
-                                self.song.init(priority=0, keyword=song_name, pro=True)
-                            else:
-                                self.wait_queue.put((song_name, True, user))
-                                self.song.init(priority=0, keyword=song_name)
-                            self.logger.info(f"[{self.room_id}] 观众「{user}」点歌成功:「{song_name}」")
-                        else:
-                            origin_id = self.song.song_id
-                            new_id = await self.song.acquire_song_id(song_name)
-                            if origin_id is None or new_id is None:
-                                pass
-                            elif origin_id == new_id:
-                                self.logger.error(
-                                    f"[{self.room_id}] 观众「{user}」重复点歌! 歌曲「{song_name}」已经位于列表中! ")
-                            else:
+                    if user_uid not in self.ban_uid:
+                        if danmaku[0] == "点歌" and danmaku[1:]:
+                            user = str(jd["info"][2][1])
+                            song_name = " ".join(danmaku[1:])
+                            song_name = song_name.strip()
+                            if self.playing.empty() and (
+                                    self.wait_queue.empty() and self.pro_queue.empty() and self.album_queue.empty()) and (
+                                    not self.song.song_process.is_alive()):
                                 if user_uid in self.admin_uid or (
                                         admin_status == "1" and randint(1, randint(1, 100)) == 2):
-                                    self.pro_queue.put((song_name, False, user))
-                                    # self.song.init(priority=self.pro_queue.qsize(), keyword=song_name, pro=True)
-                                    self.logger.info(f"[{self.room_id}] 观众「{user}」点歌「{song_name}」已加入优先队列.")
+                                    self.pro_queue.put((song_name, True, user))
+                                    self.song.init(priority=0, keyword=song_name, pro=True)
                                 else:
-                                    self.wait_queue.put((song_name, False, user))
-                                    # self.song.init(priority=self.wait_queue.qsize() + self.pro_queue.qsize(),
-                                    #                keyword=song_name)
-                                    self.logger.info(f"[{self.room_id}] 观众「{user}」点歌「{song_name}」已加入队列.")
-                    elif danmaku[0] == "切歌" and self.song.song_process.is_alive() and (
-                            admin_status == "1" or user_uid in self.admin_uid):
-                        self.song.stop_play()
-                        self.logger.info(f"[{self.room_id}] 管理「{user}」切歌成功. ")
-                    elif danmaku[
-                        0] == "暂停" and self.song.song_process.is_alive() and (
-                            self.song.song_pid) and not self.is_pause and (
-                            admin_status == "1" or user_uid in self.admin_uid):
-                        self.logger.info(f"[{self.room_id}] 管理「{user}」暂停了当前播放的歌曲. ")
-                        self.is_pause = True
-                        p = PauseProcess(self.song.song_pid)
-                        p.suspend()
-                    elif danmaku[
-                        0] == "播放" and self.song.song_process.is_alive() and self.song.song_pid and self.is_pause and (
-                            admin_status == "1" or user_uid in self.admin_uid):
-                        self.logger.info(f"[{self.room_id}] 管理「{user}」恢复了当前歌曲的播放. ")
-                        self.is_pause = False
-                        p = PauseProcess(self.song.song_pid)
-                        p.resume()
-                    elif danmaku[0] == "撤回点歌" and (not self.pro_queue.empty() or not self.wait_queue.empty()):
-                        self.logger.info(f"[{self.room_id}] 正在查找「{user}」的点歌记录...")
-                        if user_uid in self.admin_uid:
-                            search_queue = self.pro_queue
-                        else:
-                            search_queue = self.wait_queue
-                        size = search_queue.qsize()
-                        song_list = []
-                        while not search_queue.empty():
-                            try:
-                                song_list.append(search_queue.get(block=False))
-                            except Empty:
-                                break
-                        song_list.reverse()
-                        index = 0
-                        for details in song_list:
-                            if user in details:
-                                break
+                                    self.wait_queue.put((song_name, True, user))
+                                    self.song.init(priority=0, keyword=song_name)
+                                self.logger.info(f"[{self.room_id}] 观众「{user}」点歌成功:「{song_name}」")
                             else:
-                                index += 1
-                        if index < size:
-                            removed = song_list[index]
-                            song_list.remove(removed)
-                            song_list.reverse()
+                                origin_id = self.song.song_id
+                                new_id = await self.song.acquire_song_id(song_name)
+                                if origin_id is None or new_id is None:
+                                    pass
+                                elif origin_id == new_id:
+                                    self.logger.error(
+                                        f"[{self.room_id}] 观众「{user}」重复点歌! 歌曲「{song_name}」已经位于列表中! ")
+                                else:
+                                    if user_uid in self.admin_uid or (
+                                            admin_status == "1" and randint(1, randint(1, 100)) == 2):
+                                        self.pro_queue.put((song_name, False, user))
+                                        # self.song.init(priority=self.pro_queue.qsize(), keyword=song_name, pro=True)
+                                        self.logger.info(f"[{self.room_id}] 观众「{user}」点歌「{song_name}」已加入优先队列.")
+                                    else:
+                                        self.wait_queue.put((song_name, False, user))
+                                        # self.song.init(priority=self.wait_queue.qsize() + self.pro_queue.qsize(),
+                                        #                keyword=song_name)
+                                        self.logger.info(f"[{self.room_id}] 观众「{user}」点歌「{song_name}」已加入队列.")
+                        elif danmaku[0] == "切歌" and self.song.song_process.is_alive() and (
+                                admin_status == "1" or user_uid in self.admin_uid):
+                            user = str(jd["info"][2][1])
+                            self.song.stop_play()
+                            self.logger.info(f"[{self.room_id}] 管理「{user}」切歌成功. ")
+                        elif danmaku[
+                            0] == "暂停" and self.song.song_process.is_alive() and (
+                                self.song.song_pid) and not self.is_pause and (
+                                admin_status == "1" or user_uid in self.admin_uid):
+                            user = str(jd["info"][2][1])
+                            self.logger.info(f"[{self.room_id}] 管理「{user}」暂停了当前播放的歌曲. ")
+                            self.is_pause = True
+                            p = PauseProcess(self.song.song_pid)
+                            p.suspend()
+                        elif danmaku[
+                            0] == "播放" and self.song.song_process.is_alive() and self.song.song_pid and self.is_pause and (
+                                admin_status == "1" or user_uid in self.admin_uid):
+                            user = str(jd["info"][2][1])
+                            self.logger.info(f"[{self.room_id}] 管理「{user}」恢复了当前歌曲的播放. ")
+                            self.is_pause = False
+                            p = PauseProcess(self.song.song_pid)
+                            p.resume()
+                        elif danmaku[0] == "撤回点歌" and (not self.pro_queue.empty() or not self.wait_queue.empty()):
+                            user = str(jd["info"][2][1])
+                            self.logger.info(f"[{self.room_id}] 正在查找「{user}」的点歌记录...")
                             if user_uid in self.admin_uid:
-                                self.pro_queue.queue.clear()
-                                for song in song_list:
-                                    self.pro_queue.put(song)
+                                search_queue = self.pro_queue
                             else:
+                                search_queue = self.wait_queue
+                            size = search_queue.qsize()
+                            song_list = []
+                            while not search_queue.empty():
+                                try:
+                                    song_list.append(search_queue.get(block=False))
+                                except Empty:
+                                    break
+                            song_list.reverse()
+                            index = 0
+                            for details in song_list:
+                                if user in details:
+                                    break
+                                else:
+                                    index += 1
+                            if index < size:
+                                removed = song_list[index]
+                                song_list.remove(removed)
+                                song_list.reverse()
+                                if user_uid in self.admin_uid:
+                                    self.pro_queue.queue.clear()
+                                    for song in song_list:
+                                        self.pro_queue.put(song)
+                                else:
+                                    self.wait_queue.queue.clear()
+                                    for song in song_list:
+                                        self.wait_queue.put(song)
+                                self.logger.info(f"[{self.room_id}] 成功取消「{user}」最近一次的点歌: 「{removed[0]}」.")
+                            else:
+                                self.logger.error(f"[{self.room_id}] 未查找到「{user}」的点歌记录.")
+                        elif danmaku[0] == "歌单" and user_uid in self.admin_uid:
+                            self.logger.info(f"[{self.room_id}] 正在获取登录用户收藏的歌单...")
+                            album_dict = await self.album.run()
+                            if album_dict:
+                                self.logger.info(f"[{self.room_id}] 获取到当前用户歌单列表如下: ")
+                                for index in range(album_dict["total"]):
+                                    albums = f"[{self.room_id}] " + str(index) + ": " + album_dict["data"][index][
+                                        "name"]
+                                    await aprint(albums)
+                                album_index = await ainput(
+                                    f"[{self.room_id}] 请输入想要播放的歌单的序号 (如第一个歌单就输入0) (默认为第一个歌单 - 喜欢的音乐) (使用默认歌单请直接按回车): ")
+                                if not album_index:
+                                    album_index = 0
+                                try:
+                                    album_index = int(album_index)
+                                except ValueError:
+                                    self.logger.error(f"[{self.room_id}] 歌单序号只能为数字! ")
+                                album_list = await self.album.acquire_album_list(album_index)
+                                for song_id in album_list:
+                                    self.album_queue.put(song_id)
+                                # noinspection PyTypeChecker
+                                self.logger.info(
+                                    f"[{self.room_id}] 已将歌单「{album_dict['data'][album_index]['name']}」内共「{len(album_list)}」首歌曲添加至播放列表.")
+                        elif danmaku[0] == "清空歌单" and user_uid in self.admin_uid and not self.album_queue.empty():
+                            user = str(jd["info"][2][1])
+                            if self.song.song_process.is_alive():
+                                self.song.stop_play()
+                            self.album_queue.queue.clear()
+                            self.logger.info(f"[{self.room_id}] 管理「{user}」清空了歌单播放列表.")
+                        elif danmaku[0] == "取消点歌" and (admin_status == "1" or user_uid in self.admin_uid) and (
+                                not self.pro_queue.empty() or not self.wait_queue.empty()):
+                            user = str(jd["info"][2][1])
+                            if self.song.song_process.is_alive():
+                                self.song.stop_play()
+                            if not self.pro_queue.empty():
+                                self.pro_queue.queue.clear()
+                            if not self.wait_queue.empty():
                                 self.wait_queue.queue.clear()
-                                for song in song_list:
-                                    self.wait_queue.put(song)
-                            self.logger.info(f"[{self.room_id}] 成功取消「{user}」最近一次的点歌: 「{removed[0]}」.")
-                        else:
-                            self.logger.error(f"[{self.room_id}] 未查找到「{user}」的点歌记录.")
-                    elif danmaku[0] == "歌单" and user_uid in self.admin_uid:
-                        self.logger.info(f"[{self.room_id}] 正在获取登录用户收藏的歌单...")
-                        album_dict = await self.album.run()
-                        if album_dict:
-                            self.logger.info(f"[{self.room_id}] 获取到当前用户歌单列表如下: ")
-                            for index in range(album_dict["total"]):
-                                albums = f"[{self.room_id}] " + str(index) + ": " + album_dict["data"][index]["name"]
-                                await aprint(albums)
-                            album_index = await ainput(
-                                f"[{self.room_id}] 请输入想要播放的歌单的序号 (如第一个歌单就输入0) (默认为第一个歌单 - 喜欢的音乐) (使用默认歌单请直接按回车): ")
-                            if not album_index:
-                                album_index = 0
+                            self.logger.info(f"[{self.room_id}] 管理「{user}」清空了点歌播放列表.")
+                        elif danmaku[0] == "重启" and user_uid in self.admin_uid:
+                            if self.song.song_process.is_alive():
+                                self.song.stop_play()
+                            execlp(EXEC, EXEC)
+                        elif danmaku[0] == "ban" and user_uid in self.admin_uid:
+                            user = str(jd["info"][2][1])
+                            self.ban_uid.append(str(danmaku[1]))
+                            self.ban_uid = list(set(self.ban_uid))
+                            self.logger.info(f"[{self.room_id}] 管理「{user}」将UID为「{danmaku[1]}」的用户加入屏蔽列表.")
+                        elif danmaku[0] == "unban" and user_uid in self.admin_uid:
                             try:
-                                album_index = int(album_index)
+                                self.ban_uid.remove(str(danmaku[1]))
                             except ValueError:
-                                self.logger.error(f"[{self.room_id}] 歌单序号只能为数字! ")
-                            album_list = await self.album.acquire_album_list(album_index)
-                            for song_id in album_list:
-                                self.album_queue.put(song_id)
-                            # noinspection PyTypeChecker
-                            self.logger.info(
-                                f"[{self.room_id}] 已将歌单「{album_dict['data'][album_index]['name']}」内共「{len(album_list)}」首歌曲添加至播放列表.")
-                    elif danmaku[0] == "清空歌单" and user_uid in self.admin_uid and not self.album_queue.empty():
-                        if self.song.song_process.is_alive():
-                            self.song.stop_play()
-                        self.album_queue.queue.clear()
-                        self.logger.info(f"[{self.room_id}] 管理「{user}」清空了歌单播放列表.")
-                    elif danmaku[0] == "取消点歌" and (admin_status == "1" or user_uid in self.admin_uid) and (
-                            not self.pro_queue.empty() or not self.wait_queue.empty()):
-                        if self.song.song_process.is_alive():
-                            self.song.stop_play()
-                        if not self.pro_queue.empty():
-                            self.pro_queue.queue.clear()
-                        if not self.wait_queue.empty():
-                            self.wait_queue.queue.clear()
-                        self.logger.info(f"[{self.room_id}] 管理「{user}」清空了点歌播放列表.")
-                    elif danmaku[0] == "重启" and user_uid in self.admin_uid:
-                        if self.song.song_process.is_alive():
-                            self.song.stop_play()
-                        execlp(EXEC, EXEC)
+                                self.logger.warning(f"[{self.room_id}] UID为「{danmaku[1]}」的用户不在屏蔽列表内.")
+                            else:
+                                user = str(jd["info"][2][1])
+                                self.logger.info(f"[{self.room_id}] 管理「{user}」将UID为「{danmaku[1]}」的用户移除屏蔽列表.")
             except Exception as de:
                 self.logger.exception(de)
 
@@ -358,7 +390,8 @@ class BiliDM:
                         # 调用歌单播放系统
                         self.song.song_id = current_song
                         try:
-                            await wait_for(fut=self.song.acquire_song_name(), timeout=30)
+                            async with timeout(30):
+                                await self.song.acquire_song_name()
                         except TimeoutError:
                             self.logger.error(f"[{self.room_id}] 获取歌曲名超时! 正在切换至下一曲...")
                         else:
@@ -442,7 +475,8 @@ class SearchSongs:
             self.keyword.put((priority, keyword))
         self.logger.debug("Acquiring song id...")
         try:
-            self.song_id = await wait_for(self.acquire_song_id(keyword), timeout=30)
+            async with timeout(30):
+                self.song_id = await self.acquire_song_id(keyword)
         except TimeoutError:
             self.logger.error(f"下载「{keyword}」超时! 正在切换至下一曲...")
             if pro:
@@ -453,7 +487,8 @@ class SearchSongs:
         if self.song_id is not None:
             try:
                 self.logger.debug("Acquiring song name...")
-                await wait_for(fut=self.acquire_song_name(), timeout=30)
+                async with timeout(30):
+                    await self.acquire_song_name()
             except TimeoutError:
                 self.logger.error(f"下载「{keyword}」超时! 正在切换至下一曲...")
                 if pro:
@@ -463,7 +498,8 @@ class SearchSongs:
                 return
             try:
                 self.logger.debug("Acquiring download url...")
-                await wait_for(fut=self.acquire_song_url(), timeout=30)
+                async with timeout(30):
+                    await self.acquire_song_url()
             except TimeoutError:
                 self.logger.error(f"下载「{keyword}」超时! 正在切换至下一曲...")
                 if pro:
@@ -475,7 +511,8 @@ class SearchSongs:
                 self.acquire_format()
                 self.logger.debug("Start downloading...")
                 try:
-                    await wait_for(fut=self.download_song(), timeout=30)
+                    async with timeout(30):
+                        await self.download_song()
                 except TimeoutError:
                     self.logger.error(f"下载「{self.song_name}」超时! 正在切换至下一曲...")
                     if pro:
@@ -526,7 +563,8 @@ class SearchSongs:
         if self.song_id is not None:
             try:
                 self.logger.debug("Acquiring song name...")
-                await wait_for(fut=self.acquire_song_name(), timeout=30)
+                async with timeout(30):
+                    await self.acquire_song_name()
             except TimeoutError:
                 self.logger.error(f"下载「{keyword}」超时! 正在切换至下一曲...")
                 if pro:
@@ -536,7 +574,8 @@ class SearchSongs:
                 return
             try:
                 self.logger.debug("Acquiring download url...")
-                await wait_for(fut=self.acquire_song_url(), timeout=30)
+                async with timeout(30):
+                    await self.acquire_song_url()
             except TimeoutError:
                 self.logger.error(f"下载「{keyword}」超时! 正在切换至下一曲...")
                 if pro:
@@ -548,7 +587,8 @@ class SearchSongs:
                 self.acquire_format()
                 self.logger.debug("Start downloading...")
                 try:
-                    await wait_for(fut=self.download_song(), timeout=30)
+                    async with timeout(30):
+                        await self.download_song()
                 except TimeoutError:
                     self.logger.error(f"下载「{self.song_name}」超时! 正在切换至下一曲...")
                     if pro:
@@ -574,19 +614,23 @@ class SearchSongs:
         self.cookies = login.cookies
         self.logger.debug("Acquiring song id...")
         try:
-            self.song_id = await wait_for(self.acquire_song_id(song_id), timeout=30)
+            async with timeout(30):
+                self.song_id = await self.acquire_song_id(song_id)
         except TimeoutError:
             self.logger.error(f"下载「{song_id}」超时! 正在切换至下一曲...")
+            return
         if self.song_id is not None:
             try:
                 self.logger.debug("Acquiring song name...")
-                await wait_for(fut=self.acquire_song_name(), timeout=30)
+                async with timeout(30):
+                    await self.acquire_song_name()
             except TimeoutError:
                 self.logger.error(f"下载「{self.song_id}」超时! 正在切换至下一曲...")
                 return
             try:
                 self.logger.debug("Acquiring download url...")
-                await wait_for(fut=self.acquire_song_url(), timeout=30)
+                async with timeout(30):
+                    await self.acquire_song_url()
             except TimeoutError:
                 self.logger.error(f"下载「{self.song_id}」超时! 正在切换至下一曲...")
                 return
@@ -594,7 +638,8 @@ class SearchSongs:
                 self.acquire_format()
                 self.logger.debug("Start downloading...")
                 try:
-                    await wait_for(fut=self.download_song(), timeout=30)
+                    async with timeout(30):
+                        await self.download_song()
                 except TimeoutError:
                     self.logger.error(f"下载「{self.song_name}」超时! 正在切换至下一曲...")
                     return
