@@ -653,7 +653,7 @@ class SearchSongs:
             resp = await resp.text()
             resp = loads(resp)
         self.logger.debug(resp)
-        if resp["result"]["songCount"] != 0:
+        if int(resp["result"]["songCount"]) != 0:
             song_id = resp["result"]["songs"][0]["id"]
         else:
             self.logger.error("歌曲「{song_name}」不存在! 指定作曲家试试? ".format(song_name=keyword))
@@ -674,7 +674,7 @@ class SearchSongs:
             resp = await resp.text()
             resp = loads(resp)
         self.logger.debug(resp)
-        if resp["songs"]:
+        if resp["songs"] and resp["songs"][0]["name"] is not None:
             self.song_name = resp["songs"][0]["name"]
         else:
             self.logger.info("未找到指定歌曲, 尝试搜索用户上传声音...")
@@ -700,7 +700,7 @@ class SearchSongs:
             resp = await resp.text()
             resp = loads(resp)
         self.logger.debug(resp)
-        if resp["code"] != 404:
+        if int(resp["code"]) != 404:
             resp = resp["program"]["mainSong"]
             self.song_id = resp["id"]
             self.song_name = resp["name"]
@@ -1106,7 +1106,7 @@ while __name__ == "__main__":
         mode="a",
         encoding="utf-8",
     )
-    error_file_handler.setLevel(INFO)
+    error_file_handler.setLevel(DEBUG)
     error_formatter = Formatter(fmt="%(asctime)s - [%(levelname)s] %(message)s")
     error_stream_handler.setFormatter(error_formatter)
     error_file_handler.setFormatter(error_formatter)
