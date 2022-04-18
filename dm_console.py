@@ -22,7 +22,7 @@ from typing import Optional
 from configparser import ConfigParser, DEFAULTSECT
 from signal import SIGTERM
 
-__version__ = "0.4.12.3"
+__version__ = "0.4.12.4"
 EXEC_PATH = realpath(dirname(abspath(executable)))
 EXEC = join(EXEC_PATH, executable)
 PID = Queue()
@@ -346,7 +346,7 @@ class BiliDM:
 
     async def play_song(self):
         while True:
-            await async_sleep(1)
+            await async_sleep(0.5)
             if self.playing.empty() and (
                     not self.wait_queue.empty() or not self.pro_queue.empty() or not self.album_queue.empty()) and (
                     not self.song.song_process.is_alive()):
@@ -548,17 +548,6 @@ class SearchSongs:
             self.pro_keyword.put((priority, keyword))
         else:
             self.keyword.put((priority, keyword))
-        """
-        try:
-            self.logger.debug("Acquiring song id...")
-            self.song_id = await wait_for(self.acquire_song_id(keyword), timeout=30)
-        except TimeoutError:
-            self.logger.error(f"下载「{keyword}」超时! 正在切换至下一曲...")
-            if pro:
-                self.pro_keyword.get()
-            else:
-                self.keyword.get()
-        """
         self.song_id = keyword
         if self.song_id is not None:
             try:
@@ -663,9 +652,10 @@ class SearchSongs:
         async with async_request("GET", url, params=payload) as resp:
             resp = await resp.text()
             resp = loads(resp)
-        try:
+        self.logger.debug(resp)
+        if resp["result"]["songCount"] != 0:
             song_id = resp["result"]["songs"][0]["id"]
-        except KeyError:
+        else:
             self.logger.error("歌曲「{song_name}」不存在! 指定作曲家试试? ".format(song_name=keyword))
             return
         return song_id
@@ -683,9 +673,38 @@ class SearchSongs:
         async with async_request("GET", url, params=payload) as resp:
             resp = await resp.text()
             resp = loads(resp)
-        try:
+        self.logger.debug(resp)
+        if resp["songs"]:
             self.song_name = resp["songs"][0]["name"]
-        except KeyError:
+        else:
+            self.logger.info("未找到指定歌曲, 尝试搜索用户上传声音...")
+            try:
+                async with timeout(30):
+                    await self.acquire_dj_name()
+            except TimeoutError:
+                self.logger.error(f"下载「{self.song_id}」超时! 正在切换至下一曲...")
+                return
+        return
+
+    async def acquire_dj_name(self):
+        url = "https://netease.a-soul.cloud/dj/program/detail"
+        payload = {
+            "id": self.song_id,
+            "cookie": self.cookies,
+            "realIP": "114.114.114.114",
+        } if self.cookies is not None else {
+            "id": self.song_id,
+            "realIP": "114.114.114.114",
+        }
+        async with async_request("GET", url, params=payload) as resp:
+            resp = await resp.text()
+            resp = loads(resp)
+        self.logger.debug(resp)
+        if resp["code"] != 404:
+            resp = resp["program"]["mainSong"]
+            self.song_id = resp["id"]
+            self.song_name = resp["name"]
+        else:
             self.logger.error("歌曲「{song_name}」不存在! 指定作曲家试试? ".format(song_name=self.song_id))
         return
 
@@ -702,6 +721,7 @@ class SearchSongs:
         async with async_request("GET", url, params=payload) as resp:
             resp = await resp.text()
             resp = loads(resp)
+        self.logger.debug(resp)
         try:
             self.song_url = resp["data"][0]["url"]
         except KeyError:
@@ -778,6 +798,7 @@ class SongLogin:
         async with async_request("GET", url, params=payload) as resp:
             resp = await resp.text()
             resp = loads(resp)
+        self.logger.debug(resp)
         try:
             self.cookies = resp["cookie"]
         except KeyError:
@@ -798,6 +819,7 @@ class SongLogin:
         async with async_request("GET", url, params=payload) as resp:
             resp = await resp.text()
             resp = loads(resp)
+        self.logger.debug(resp)
         try:
             self.cookies = resp["cookie"]
         except KeyError:
@@ -828,6 +850,7 @@ class SongLogin:
         async with async_request("GET", url, params=payload) as resp:
             resp = await resp.text()
             resp = loads(resp)
+        self.logger.debug(resp)
         if resp["code"] != 200:
             self.cookies = None
         return
@@ -899,6 +922,7 @@ class Album:
         async with async_request("GET", url, params=payload) as resp:
             resp = await resp.text()
             resp = loads(resp)
+        self.logger.debug(resp)
         self.uid = resp["data"]["account"]["id"]
 
     async def acquire_user_playlist(self):
@@ -912,6 +936,7 @@ class Album:
         async with async_request("GET", url, params=payload) as resp:
             resp = await resp.text()
             resp = loads(resp)
+        self.logger.debug(resp)
         # 返回可供选择的歌单列表
         self.album_dict["total"] = len(resp["playlist"])
         for i in range(len(resp["playlist"])):
@@ -934,6 +959,7 @@ class Album:
         async with async_request("GET", url, params=payload) as resp:
             resp = await resp.text()
             resp = loads(resp)
+        self.logger.debug(resp)
         album_id_list = []
         for i in range(len(resp["songs"])):
             album_id_list.append(resp["songs"][i]["id"])
@@ -977,7 +1003,7 @@ class SongLogger:
             mode="a",
             encoding="utf-8",
         )
-        file_handler.setLevel(self.level)
+        file_handler.setLevel(DEBUG)
         formatter = Formatter(fmt="%(asctime)s - [%(levelname)s] %(message)s")
         stream_handler.setFormatter(formatter)
         file_handler.setFormatter(formatter)
