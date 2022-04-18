@@ -210,10 +210,9 @@ class BiliDM:
                                 self.logger.info(f"[{self.room_id}] 观众「{user}」点歌成功:「{song_name}」")
                             else:
                                 origin_id = self.song.song_id
-                                new_id = await self.song.acquire_song_id(song_name)
-                                if origin_id is None or new_id is None:
-                                    pass
-                                elif origin_id == new_id:
+                                # 需要跳过重复检查
+                                new_id = await self.song.acquire_song_id(song_name, no_print=True)
+                                if origin_id is not None and new_id is not None and origin_id == new_id:
                                     self.logger.error(
                                         f"[{self.room_id}] 观众「{user}」重复点歌! 歌曲「{song_name}」已经位于列表中! ")
                                 else:
@@ -507,7 +506,7 @@ class SearchSongs:
                 else:
                     self.keyword.get()
                 return
-            if self.song_name and self.song_url:
+            if self.song_name is not None and self.song_url is not None:
                 self.acquire_format()
                 self.logger.debug("Start downloading...")
                 try:
@@ -572,7 +571,7 @@ class SearchSongs:
                 else:
                     self.keyword.get()
                 return
-            if self.song_name and self.song_url:
+            if self.song_name is not None and self.song_url is not None:
                 self.acquire_format()
                 self.logger.debug("Start downloading...")
                 try:
@@ -623,7 +622,7 @@ class SearchSongs:
             except TimeoutError:
                 self.logger.error(f"下载「{self.song_id}」超时! 正在切换至下一曲...")
                 return
-            if self.song_name and self.song_url:
+            if self.song_name is not None and self.song_url is not None:
                 self.acquire_format()
                 self.logger.debug("Start downloading...")
                 try:
@@ -639,7 +638,7 @@ class SearchSongs:
                     self.song_pid = self.song_process.pid
                     PID.put(self.song_process.pid)
 
-    async def acquire_song_id(self, keyword):
+    async def acquire_song_id(self, keyword, no_print=False):
         url = "https://netease.a-soul.cloud/cloudsearch"
         payload = {
             "keywords": keyword,
@@ -656,7 +655,8 @@ class SearchSongs:
         if int(resp["result"]["songCount"]) != 0:
             song_id = resp["result"]["songs"][0]["id"]
         else:
-            self.logger.error("歌曲「{song_name}」不存在! 指定作曲家试试? ".format(song_name=keyword))
+            if not no_print:
+                self.logger.error("歌曲「{song_name}」不存在! 指定作曲家试试? ".format(song_name=keyword))
             return
         return song_id
 
