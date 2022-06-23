@@ -7,4 +7,4 @@ aiowebsocket~=1.0.0.dev2
 pydub~=0.25.1
 PyYAML~=5.4.1
 quart~=0.16.1
-nuitka~=0.7.2
+nuitka~=0.9
